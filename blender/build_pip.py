@@ -117,7 +117,7 @@ def build_character(n_strands):
         face[f'lid_low.{sx}'] = lids['low']
         face[f'lash.{sx}'] = lids['lash']
     face['nose'] = PP.make_nose(mats, C_geo)
-    face['tongue'] = PP.make_tongue(mats, C_geo)
+    face['mouth'] = PP.make_mouth(mats, C_geo, body)
     die = PP.make_die(mats, C_prop)
 
     # ---- rig
@@ -141,7 +141,7 @@ def build_character(n_strands):
     for i, (p, pid) in enumerate(zip(sco, scarf_parts)):
         part = names[pid]
         if part in ('ring', 'knot'):
-            wn = np.clip((p[2] - 0.235) / 0.05, 0, 1)
+            wn = np.clip((p[2] - 0.22) / 0.05, 0, 1)
             g('neck').add([i], float(wn), 'REPLACE')
             g('chest').add([i], float(1 - wn), 'REPLACE')
         else:
@@ -167,10 +167,20 @@ def build_character(n_strands):
         PR.bone_parent(face[f'lid_low.{sx}'], rig, f'lid_low.{sx}')
         PR.bone_parent(face[f'lash.{sx}'], rig, f'lid_up.{sx}')
     PR.bone_parent(face['nose'], rig, 'head')
-    PR.bone_parent(face['tongue'], rig, 'jaw')
+    PR.bone_parent(face['mouth'], rig, 'head')
+    # one animatable 'grin' control on the rig drives the mouth shape key
+    rig['grin'] = 0.0
+    rig.id_properties_ui('grin').update(min=0.0, max=1.0, description='Open the mouth into a grin')
+    kb = face['mouth'].data.shape_keys.key_blocks['Grin']
+    fc = kb.driver_add('value')
+    fc.driver.type = 'AVERAGE'
+    var = fc.driver.variables.new()
+    var.type = 'SINGLE_PROP'
+    var.targets[0].id = rig
+    var.targets[0].data_path = '["grin"]'
 
     # catch-light card: only visible in reflections (eyes / nose)
-    bpy.ops.mesh.primitive_circle_add(vertices=24, radius=0.045, fill_type='NGON',
+    bpy.ops.mesh.primitive_circle_add(vertices=24, radius=0.075, fill_type='NGON',
                                       location=(-0.10, -0.42, 0.56))
     cl = bpy.context.active_object
     cl.name = 'Eye_Catchlight'
@@ -196,7 +206,7 @@ def build_character(n_strands):
     # ---- fur
     t = time.time()
     vattr = dict(co=co, nrm=nrm, color=F['color'], length=F['length'], lift=F['lift'],
-                 comb=F['comb'], clump=F['clump'], density=F['density'])
+                 comb=F['comb'], clump=F['clump'], density=F['density'], reach=F['reach'])
     fur = PF.build_fur(body, C_geo, mats['fur'], vattr, n_strands)
     log('fur', n_strands, f'{time.time() - t:.1f}s')
     return dict(rig=rig, body=body, fur=fur, die=die, scarf=scarf, face=face, mats=mats)
@@ -244,9 +254,13 @@ def build_stage(mats):
         o.location = loc
         d = Vector(target) - Vector(loc)
         o.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
+        if name in ('Fill_Front', 'Top'):
+            o.visible_glossy = False      # keep eye highlights to the key, fill + catch-light
         return o
-    area('Key', (-0.55, -1.45, 1.35), (0, -0.05, 0.32), 1.1, 95, (1.0, 0.96, 0.90))
-    area('Fill', (-1.4, -0.9, 0.55), (0, -0.05, 0.3), 1.4, 28, (0.80, 0.88, 1.0))
+    # key from upper screen-left (as in the character art), soft fill from camera right
+    area('Key', (-1.25, -0.60, 1.45), (0, -0.05, 0.32), 0.7, 150, (1.0, 0.97, 0.93))
+    area('Fill', (0.75, -1.45, 0.45), (0, -0.05, 0.3), 1.6, 38, (0.85, 0.90, 1.0))
+    area('Fill_Front', (-0.35, -1.7, 0.30), (0, -0.05, 0.3), 1.2, 16, (0.95, 0.96, 1.0))
     area('Rim_L', (1.05, 1.10, 1.05), (0, 0, 0.35), 0.7, 85, (0.85, 0.95, 1.0))
     area('Rim_R', (-1.0, 0.9, 0.9), (0, 0, 0.35), 0.7, 70, (0.65, 0.92, 1.0))
     area('Top', (0.0, 0.2, 1.8), (0, 0, 0.3), 0.8, 30, (1.0, 1.0, 1.0))
@@ -271,8 +285,13 @@ def build_stage(mats):
         return o
     cam3q = cam('Cam_ThreeQuarter', (-1.05, -1.52, 0.56), (-0.07, -0.02, 0.345), 58)
     camtt = cam('Cam_Turntable', (0.0, -1.85, 0.40), (-0.02, 0.0, 0.31), 68)
-    scene.camera = cam3q
-    return dict(cam3q=cam3q, camtt=camtt)
+    # v2: locked camera for the Near Miss, at the character art's angle
+    tgt = Vector((-0.02, -0.07, 0.34))
+    az, el, dist = math.radians(28), math.radians(9), 2.12
+    pos = tgt + Vector((-math.sin(az) * math.cos(el) * dist, -math.cos(az) * math.cos(el) * dist, math.sin(el) * dist))
+    cam_nm = cam('Cam_NearMiss', tuple(pos), tuple(tgt), 85)
+    scene.camera = cam_nm
+    return dict(cam3q=cam3q, camtt=camtt, cam_nm=cam_nm)
 
 
 def render_settings():
@@ -294,8 +313,10 @@ def render_settings():
     s.frame_start = 1
     s.frame_end = 120
     s.render.film_transparent = False
-    s.view_settings.view_transform = 'AgX'
-    s.view_settings.look = 'AgX - Punchy'
+    # Khronos PBR Neutral keeps the art's saturated blues, teal and gold
+    s.view_settings.view_transform = 'Khronos PBR Neutral'
+    s.view_settings.look = 'None'
+    s.view_settings.exposure = -0.5
     s.render.hair_type = 'STRAND' if hasattr(s.render, 'hair_type') else None
     s.cycles_curves.shape = 'THICK' if hasattr(s, 'cycles_curves') else None
 
@@ -303,7 +324,7 @@ def render_settings():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--strands', type=int, default=180000)
-    ap.add_argument('--out', default=os.path.join(HERE, 'pip.blend'))
+    ap.add_argument('--out', default=os.path.join(HERE, 'pip_v2.blend'))
     ap.add_argument('--no-anim', action='store_true')
     args = ap.parse_args([a for a in sys.argv[1:] if a.startswith('--') or not a.endswith('.py')])
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -311,9 +332,10 @@ def main():
     ch = build_character(args.strands)
     st = build_stage(ch['mats'])
     render_settings()
+    import pip_anim_v2
+    pip_anim_v2.likeness_actions(ch['rig'])
     if not args.no_anim:
-        import pip_anim
-        pip_anim.animate(ch, st)
+        pip_anim_v2.animate_near_miss(ch, st)
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=args.out, compress=True)
     log('saved', args.out, f'{time.time() - T0:.1f}s total')

@@ -21,10 +21,10 @@ def bone_table():
     B('root', (0, 0, 0), (0, 0.16, 0), None, False, 'Controls')
     B('hips', (0, 0.020, 0.088), (0, 0.000, 0.140), 'root')
     B('spine', (0, 0.000, 0.140), (0, -0.028, 0.200), 'hips')
-    B('chest', (0, -0.028, 0.200), (0, -0.035, 0.246), 'spine')
-    B('neck', (0, -0.035, 0.246), (0, -0.040, 0.292), 'chest')
-    B('head', (0, -0.040, 0.292), (0, -0.040, 0.480), 'neck')
-    B('jaw', D.H((0, -0.092, 0.352)), D.H((0, -0.168, 0.336)), 'head', True, 'Face')
+    B('chest', (0, -0.028, 0.196), (0, -0.035, 0.232), 'spine')
+    B('neck', (0, -0.035, 0.232), (0, -0.040, 0.272), 'chest')
+    B('head', (0, -0.040, 0.272), (0, -0.040, 0.460), 'neck')
+    B('jaw', D.H((0, -0.092, 0.356)), D.H((0, -0.168, 0.340)), 'head', True, 'Face')
     for s, sx in ((1, 'L'), (-1, 'R')):
         base, A, S, N = D.ear_frame(s)
         mid = base + A * D.EAR_LEN * 0.42
@@ -184,6 +184,16 @@ def compute_weights(co, an, is_ear, ear_side, ear_par, edges, n_body):
     for _ in range(12):
         avg = (A @ Wt) / np.maximum(deg, 1)[:, None]
         Wt[body] = 0.5 * Wt[body] + 0.5 * avg[body]
+    # mouth: the chin below the lip line follows the jaw, the upper lip stays with the head
+    mc = D.MOUTH_C
+    near = np.linalg.norm((co - mc) / np.array([0.06, 0.05, 0.045]), axis=1)
+    reg = np.clip(1.6 - near * 1.6, 0, 1) * ~is_ear
+    below = co[:, 2] < D.mouth_z(co[:, 0])
+    j, h = bidx['jaw'], bidx['head']
+    tot = Wt[:, j] + Wt[:, h]
+    wj = np.where(below, np.maximum(Wt[:, j], reg * tot), Wt[:, j] * (1 - reg))
+    Wt[:, h] = tot - wj
+    Wt[:, j] = wj
     # keep 4 strongest
     idx = np.argsort(-Wt, axis=1)[:, 4:]
     np.put_along_axis(Wt, idx, 0, axis=1)

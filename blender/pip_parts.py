@@ -86,8 +86,8 @@ def make_eye(s, mats, coll):
     return link(ob, coll)
 
 
-UP_LID_CENTER, UP_LID_SIDE = 44.0, 8.0      # degrees: arched upper lid edge
-LOW_LID_CENTER, LOW_LID_SIDE = -52.0, -30.0
+UP_LID_CENTER, UP_LID_SIDE = 44.0, 4.0      # degrees: arched upper lid edge
+LOW_LID_CENTER, LOW_LID_SIDE = -50.0, -24.0
 
 
 def lid_edge(az, upper=True):
@@ -97,26 +97,49 @@ def lid_edge(az, upper=True):
     return math.radians(c + (sd - c) * k)
 
 
+def liner_width(az, s, upper=True):
+    """Angular width (radians) of the dark liner band hugging the eye under the lid edge."""
+    outer = np.clip(az / math.radians(90), 0, 1)       # +az = outer corner (see lid_mesh)
+    if upper:
+        return math.radians(6.0 + 11.0 * outer ** 1.2)
+    return math.radians(1.0 + 3.5 * outer)
+
+
 def lid_mesh(s, upper=True):
-    """A spherical lid shell with an arched cut edge. Rotating it about the
-    eye's side axis (the lid bone's local X) opens and closes it."""
+    """A spherical lid shell with an arched cut edge. Under the edge a thin dark
+    liner band wraps tight to the eyeball, so the eye outline (like the art's
+    bold lash line) rides with the lid through blinks and squints.
+    Rotating the shell about the eye's side axis (lid bone local X) opens/closes it."""
     f, u, r = eye_frame(s)
-    R0 = D.EYE_R * 1.07
-    th = 0.0028
-    nel, naz = 22, 56
+    r = -r * s                       # +r now points to the outer corner for both eyes
+    R0 = D.EYE_R * 1.06
+    RL = D.EYE_R * 1.006
+    th = 0.0030
+    nel, naz = 28, 56
     verts, faces = [], []
     sign = 1 if upper else -1
     azs = np.linspace(-math.radians(100), math.radians(100), naz)
     edge_w = []
-    for layer, rad in enumerate((R0 + th, R0)):
+    for layer in (0, 1):
         for i in range(nel):
             k = i / (nel - 1)
             for j, az in enumerate(azs):
                 e0 = lid_edge(az, upper)
-                el = e0 + (sign * math.radians(118) - e0) * k
+                lw = liner_width(az, s, upper) * (0.0 if layer == 0 else 1.0)
+                start = e0 - sign * liner_width(az, s, upper)
+                el = start + (sign * math.radians(118) - start) * k
+                inside = (el - e0) * sign < 0          # in the liner band
+                if inside:
+                    rad = RL + (0.0012 if layer == 0 else 0.0)
+                else:
+                    blend = min(1.0, abs(el - e0) / math.radians(3))
+                    rad = RL + (R0 - RL) * blend + (th if layer == 0 else 0.0) * blend + (0.0012 if layer == 0 else 0) * (1 - blend)
                 d = math.cos(el) * (math.cos(az) * f + math.sin(az) * r) + math.sin(el) * u
                 verts.append(D.EYE_C[s] + rad * d)
-                edge_w.append(1.0 - min(1.0, abs(el - e0) / math.radians(9)))
+                if inside:
+                    edge_w.append(1.0)
+                else:
+                    edge_w.append(1.0 - min(1.0, abs(el - e0) / math.radians(6)))
     nn = nel * naz
     for i in range(nel - 1):
         for j in range(naz - 1):
@@ -139,26 +162,37 @@ def make_lids(s, mats, coll):
         for p in me.polygons:
             p.use_smooth = True
         at = me.attributes.new('lash', 'FLOAT', 'POINT')
-        at.data.foreach_set('value', ew.astype(np.float32) * (1.0 if upper else 0.55))
+        at.data.foreach_set('value', ew.astype(np.float32) * (1.0 if upper else 0.85))
         me.materials.append(mats['lid'])
         ob = link(bpy.data.objects.new(name, me), coll)
         out['up' if upper else 'low'] = ob
     # bold upper lash line + the little flick at the outer corner
     f, u, r = eye_frame(s)
     pts, rad = [], []
-    for az in np.linspace(-math.radians(55), math.radians(84), 34):
-        el = lid_edge(az, True) + math.radians(1.5)
+    for az in np.linspace(-math.radians(68), math.radians(86), 40):
+        el = lid_edge(az, True) + math.radians(3.5)
         d = math.cos(el) * (math.cos(az) * f - math.sin(az) * r * s) + math.sin(el) * u
         pts.append(D.EYE_C[s] + D.EYE_R * 1.12 * d)
-        k = (az + math.radians(55)) / math.radians(139)
-        rad.append(0.0011 + 0.0034 * min(1.0, k * 1.5) ** 0.8)
+        k = (az + math.radians(68)) / math.radians(154)
+        rad.append(0.0026 + 0.0042 * min(1.0, k * 1.4) ** 0.8)
     # flick: continue outward and up from the outer corner
     last = pts[-1]
     outward = -r * s
     for i, k in enumerate((0.3, 0.6, 0.9)):
-        pts.append(last + outward * 0.013 * k + u * 0.008 * k ** 1.5 + f * -0.003 * k)
-        rad.append(0.0040 * (1 - k) + 0.0005)
+        pts.append(last + outward * 0.017 * k + u * 0.011 * k ** 1.4 + f * -0.004 * k)
+        rad.append(0.0050 * (1 - k) + 0.0006)
     v, fc = tube(pts, rad, 8)
+    # thin lower lash on the outer half of the eye
+    lp, lr = [], []
+    for az in np.linspace(math.radians(10), math.radians(80), 14):
+        el = lid_edge(az, False) - math.radians(1.0)
+        d = math.cos(el) * (math.cos(az) * f - math.sin(az) * r * s) + math.sin(el) * u
+        lp.append(D.EYE_C[s] + D.EYE_R * 1.10 * d)
+        k = (az - math.radians(10)) / math.radians(70)
+        lr.append(0.0007 + 0.0011 * math.sin(math.pi * min(1.0, k)) ** 0.5)
+    v2_, f2_ = tube(lp, lr, 6)
+    fc = list(fc) + [tuple(i + len(v) for i in face) for face in f2_]
+    v = np.concatenate([v, v2_])
     me = mesh_from_arrays(f'Pip_Lash.{sx}', v, fc)
     for p in me.polygons:
         p.use_smooth = True
@@ -172,8 +206,8 @@ def make_nose(mats, coll):
     for v in bm.verts:
         x, y, z = v.co
         # rounded inverted triangle, a touch wider on top
-        w = 0.0175 * D.HS * (1.0 + 0.32 * z)
-        v.co = Vector((x * w, y * 0.0125 * D.HS, z * 0.0115 * D.HS))
+        w = 0.0170 * D.HS * (1.0 + 0.34 * z)
+        v.co = Vector((x * w, y * 0.0122 * D.HS, z * 0.0112 * D.HS))
     me = bpy.data.meshes.new('Pip_Nose')
     bm.to_mesh(me)
     bm.free()
@@ -190,7 +224,7 @@ def make_tongue(mats, coll):
     bm = uv_sphere(1.0, 32, 16)
     for v in bm.verts:
         x, y, z = v.co
-        v.co = Vector((x * 0.022, y * 0.018, z * 0.006 + 0.004 * (x * x)))
+        v.co = Vector((x * 0.019, y * 0.016, z * 0.0050 + 0.003 * (x * x)))
     me = bpy.data.meshes.new('Pip_Tongue')
     bm.to_mesh(me)
     bm.free()
@@ -198,17 +232,92 @@ def make_tongue(mats, coll):
         p.use_smooth = True
     me.materials.append(mats['tongue'])
     ob = bpy.data.objects.new('Pip_Tongue', me)
-    ob.location = Vector(D.MOUTH_C + np.array([0, 0.009, -0.012]))
-    ob.rotation_euler = (math.radians(-18), 0, 0)
+    # rests just under the closed mouth; shows when the jaw drops into a grin
+    ob.location = Vector((0.0, D.MOUTH_C[1] + 0.015, D.mouth_z(0.0) - D.MOUTH_GAP - 0.0052))
+    ob.rotation_euler = (math.radians(-6), 0, 0)
     return link(ob, coll)
 
 
+def _surface_y(x, z, y0=-0.32, y1=-0.12):
+    """Front surface of the body SDF along +Y at (x, z) (bisection)."""
+    lo, hi = np.full_like(x, y0), np.full_like(x, y1)
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        inside = D.body_sdf(np.stack([x, mid, z], -1)) < 0
+        hi = np.where(inside, mid, hi)
+        lo = np.where(inside, lo, mid)
+    return 0.5 * (lo + hi)
+
+
+def make_mouth(mats, coll, body=None, nx=41, nz=14):
+    """Open-grin mouth fitted to the muzzle. Basis = relaxed closed mouth (a thin
+    dark lip line on the smile curve); shape key 'Grin' = open D-shape with the
+    tongue painted in. Driven by the rig's 'grin' property."""
+    us = np.linspace(-1, 1, nx)
+    vs = np.linspace(0, 1, nz)
+    U, Vv = np.meshgrid(us, vs, indexing='ij')
+    X = U * D.MOUTH_HALF_W
+    top = D.mouth_z(X)
+    taper = np.clip(1 - U ** 2, 0, 1) ** 0.5
+    Zc = top - 0.0019 * np.minimum(Vv / 0.25, 1.0) * (0.35 + 0.65 * taper)   # rows past 0.25 fold away
+    Zo = top + (D.mouth_open_bottom(X) - top) * Vv
+
+    if body is not None:          # fit to the real (remeshed) skin with ray casts
+        from mathutils.bvhtree import BVHTree
+        dg = bpy.context.evaluated_depsgraph_get()
+        tree = BVHTree.FromObject(body, dg)
+
+        def surf(x, z):
+            out = np.empty(x.size)
+            for k, (xx, zz) in enumerate(zip(x.ravel(), z.ravel())):
+                hit = tree.ray_cast(Vector((xx, -0.45, zz)), Vector((0, 1, 0)))
+                out[k] = hit[0].y if hit[0] is not None else -0.2
+            return out.reshape(x.shape)
+    else:
+        def surf(x, z):
+            return _surface_y(x.ravel(), z.ravel()).reshape(x.shape)
+    off = 0.0016
+    Yo = surf(X, Zo) - off
+    Yc = surf(X, Zc) - off
+    verts_c = np.stack([X, Yc, Zc], -1).reshape(-1, 3)
+    verts_o = np.stack([X, Yo, Zo], -1).reshape(-1, 3)
+    faces = []
+    for i in range(nx - 1):
+        for j in range(nz - 1):
+            a = i * nz + j
+            faces.append((a, a + nz, a + nz + 1, a + 1))
+    me = bpy.data.meshes.new('Pip_Mouth')
+    me.from_pydata([tuple(v) for v in verts_c], [], faces)
+    for p in me.polygons:
+        p.use_smooth = True
+    # paint: dark mouth, pink tongue low in the middle, darker rim
+    col = np.zeros((len(verts_c), 4))
+    tongue = np.exp(-((U / 0.55) ** 2 + ((Vv - 0.85) / 0.30) ** 2)).ravel()
+    rim = np.clip(1 - np.minimum(Vv, 1 - np.abs(U)) / 0.12, 0, 1).ravel()
+    base = np.array([0.075, 0.010, 0.016])
+    pink = np.array([0.80, 0.22, 0.28])
+    c = base[None] + (pink - base)[None] * np.clip(tongue * 1.4, 0, 1)[:, None]
+    c = c * (1 - 0.6 * rim)[:, None]
+    col[:, :3] = c
+    col[:, 3] = 1
+    ca = me.color_attributes.new('mcol', 'FLOAT_COLOR', 'POINT')
+    ca.data.foreach_set('color', col.reshape(-1).astype(np.float32))
+    ob = bpy.data.objects.new('Pip_Mouth', me)
+    link(ob, coll)
+    ob.shape_key_add(name='Closed')
+    sk = ob.shape_key_add(name='Grin')
+    sk.data.foreach_set('co', verts_o.reshape(-1).astype(np.float32))
+    sk.slider_max = 1.0
+    me.materials.append(mats['mouth'])
+    return ob
+
+
 # ------------------------------------------------------------------ scarf
-SCARF_C = np.array([0.0, -0.038, 0.256])
-SCARF_TILT = math.radians(14)        # front lower than back
+SCARF_C = np.array([0.0, -0.036, 0.226])
+SCARF_TILT = math.radians(8)        # front lower than back
 
 
-def scarf_ring_point(theta, phi, rx=0.084, ry=0.076, rt=0.027):
+def scarf_ring_point(theta, phi, rx=0.088, ry=0.080, rt=0.029):
     """theta around neck (0 = front), phi around the tube."""
     c, s = math.cos(theta), math.sin(theta)
     center = np.array([s * rx, -c * ry, 0.0])
@@ -266,9 +375,9 @@ def ribbon(path, widths, normal_hint, twist=0.0, th=0.0075, nw=7):
     return np.array(verts), faces
 
 
-_SZ = np.array([0, 0, -0.024])
-SCARF_TAIL_A = np.array([[-0.052, -0.110, 0.262], [-0.090, -0.118, 0.236], [-0.126, -0.110, 0.204],
-                         [-0.156, -0.094, 0.174], [-0.182, -0.076, 0.150]]) + _SZ
+_SZ = np.array([0, -0.004, -0.056])
+SCARF_TAIL_A = np.array([[-0.052, -0.110, 0.262], [-0.090, -0.118, 0.238], [-0.118, -0.110, 0.208],
+                         [-0.140, -0.096, 0.178], [-0.158, -0.080, 0.150]]) + _SZ
 SCARF_TAIL_B = np.array([[-0.058, -0.104, 0.274], [-0.100, -0.094, 0.280], [-0.140, -0.068, 0.272],
                          [-0.174, -0.036, 0.258], [-0.202, -0.004, 0.242]]) + _SZ
 SCARF_KNOT = np.array([-0.052, -0.104, 0.268]) + _SZ
@@ -302,8 +411,8 @@ def make_scarf(mats, coll):
     bm.free()
     parts.append((np.array(kv), kf, 'knot'))
     for path, widths, hint, tw, name in (
-            (SCARF_TAIL_A, [0.050, 0.058, 0.064, 0.066, 0.062], (0.3, -1, 0.3), 0.5, 'tail_a'),
-            (SCARF_TAIL_B, [0.046, 0.054, 0.060, 0.062, 0.058], (0.2, -0.5, 1), -0.6, 'tail_b')):
+            (SCARF_TAIL_A, [0.056, 0.066, 0.074, 0.078, 0.074], (0.3, -1, 0.3), 0.5, 'tail_a'),
+            (SCARF_TAIL_B, [0.050, 0.060, 0.068, 0.072, 0.068], (0.2, -0.5, 1), -0.6, 'tail_b')):
         # densify the path
         tt = np.linspace(0, 1, 18)
         src = np.linspace(0, 1, len(path))

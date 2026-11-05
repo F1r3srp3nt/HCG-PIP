@@ -2,7 +2,46 @@
 Our cute fox friend :) The first video game character from HCG <3
 
 Pip is the arctic-fox mascot for HCG LifeOS. This repo has a rigged, furred 3D
-prototype of Pip built in Blender, plus his first animation.
+prototype of Pip built in Blender, plus his animations.
+
+## v2 (current)
+
+| Path | What it is |
+| --- | --- |
+| `blender/pip_v2.blend` | **Editable v2 file**: re-proportioned Pip, the rig, and the *Near Miss* action. Needs Blender 5.2+. |
+| `previews/pip_v2_near_miss.mp4` | The 5 s locked-camera performance |
+| `previews/pip_v2_likeness_check.png` | Reference art vs. v2 from the same angle (grin, and the relaxed resting mouth) |
+| `reference/pip_v2_sheet.png` | The character sheet v2 was matched to |
+
+**Model and rig changes from v1:**
+- **Head and ears:** bigger head; broad, rounded ears with fluffy white rims and darker blue insides; a sculpted crest of swept tufts and spiky cheek tufts.
+- **Face:** larger amber eyes. Each upper lid carries a dark liner band with an outer flick, so the outline follows blinks and squints. Smaller nose, shorter muzzle.
+- **Mouth:** a relaxed closed mouth (a fine smile line). The `grin` custom property on `Pip_Rig` (0–1) drives the `Grin` shape key on `Pip_Mouth`, which opens it into a grin with the tongue showing.
+- **Colours:** darker navy satin scarf, teal tail tip with a zig-zag edge, and a stronger periwinkle wash in the fur. Uses the *Khronos PBR Neutral* view transform.
+- **Die:** a bigger gold die (16 cm) held against the belly, with chubbier arms and toe lobes on the feet.
+
+**Actions in `pip_v2.blend`:**
+- `Pip_NearMiss` + `Die_NearMiss` (frames 1–120, 24 fps; camera `Cam_NearMiss` is locked). Key frames:
+  - Release: frame 36.
+  - Catch: frame 55, off-centre and tilted.
+  - Near drop: frames 56–64 (`die_socket` slips toward his left paw, `hold_ctrl` dips so the elbows fold, the tail swings out).
+  - Glance: frame 87.
+  - Grin: from frame 94.
+  - Feet stay planted (`foot_ik` never moves).
+- `Pip_Likeness` and `Pip_Rest`: single-frame poses used for the likeness check.
+
+Build and render v2:
+
+```bash
+cd blender
+python build_pip.py                                   # -> pip_v2.blend
+python render_previews.py --which likeness            # -> previews/pip_v2_likeness_check.png
+python render_previews.py --which nearmiss            # -> previews/pip_v2_near_miss.mp4
+```
+
+The v1 file (`blender/pip.blend`, *Lucky Flick* and turntable) is kept for comparison. The scripts that built it are in commit `cea169d`.
+
+## v1
 
 ## What's here
 

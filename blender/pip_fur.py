@@ -49,7 +49,7 @@ def strands(R, rng):
     lift = np.clip(R['lift'] + rng.normal(0, 0.08, n), 0.05, 0.95)
     jitter = unit(rng.normal(0, 1, (n, 3)))
     jitter = unit(jitter - nrm * (jitter * nrm).sum(1, keepdims=True))
-    comb = unit(comb + jitter * 0.18)
+    comb = unit(comb + jitter * 0.10)
     d0 = unit(nrm * lift[:, None] + comb * (1 - lift)[:, None])
     d1 = unit(nrm * (0.25 * lift)[:, None] + comb + np.array([0, 0, -0.18]))
     t = np.linspace(0, 1, K)
@@ -60,20 +60,30 @@ def strands(R, rng):
         d = unit(d0 * (1 - tk) + d1 * tk)
         P[:, k] = P[:, k - 1] + d * (L / (K - 1))[:, None]
     # clumping: tips gather toward the nearest clump-centre strand
-    nc = max(200, n // 14)
-    centres = rng.choice(n, nc, replace=False)
-    tree = cKDTree(R['co'][centres])
-    dist, ci = tree.query(R['co'])
-    cidx = centres[ci]
-    reach = 0.005 + 0.16 * L
+    # clump centres on a hash grid whose cell size follows the local tuft size,
+    # so cheeks / crest / tail get a few chunky tufts and the body many small ones
+    rch = R.get('reach', np.ones(n))
+    lvl = np.clip(np.round(rch * 2) / 2, 0.5, 4.0)
+    cidx = np.arange(n)
+    dist = np.zeros(n)
+    for lv in np.unique(lvl):
+        ids = np.nonzero(lvl == lv)[0]
+        cs = 0.0045 * lv
+        key = np.floor((R['co'][ids] + rng.uniform(0, cs, 3)) / cs).astype(np.int64)
+        _, first = np.unique(key, axis=0, return_index=True)
+        cent = ids[first]
+        tree = cKDTree(R['co'][cent])
+        dd, ci = tree.query(R['co'][ids])
+        cidx[ids] = cent[ci]
+        dist[ids] = dd
+    reach = (0.004 + 0.12 * L) * rch + 0.0045 * lvl
     amt = R['clump'] * np.clip(1 - dist / reach, 0, 1)
-    tgt = P[cidx] - P[cidx][:, :1] + P[:, :1]          # clump shape from my root
     tipw = t ** 1.4
     pull = amt[:, None, None] * tipw[None, :, None]
     P = P + pull * (P[cidx] - P) * 0.92
     # a gentle wave so strands are not dead straight
     ph = rng.uniform(0, 6.28, n)
-    wav = np.sin(t[None, :] * 3.0 + ph[:, None]) * (0.06 * L)[:, None] * t[None, :]
+    wav = np.sin(t[None, :] * 3.0 + ph[:, None]) * (0.035 * L)[:, None] * t[None, :]
     P = P + jitter[:, None, :] * wav[..., None]
     return P
 
@@ -89,7 +99,7 @@ def build_fur(body, coll, mat, vattr, n_strands, seed=7):
     cv.position_data.foreach_set('vector', P.reshape(-1).astype(np.float32))
     rad = cv.attributes.new('radius', 'FLOAT', 'POINT')
     t = np.linspace(0, 1, K)
-    rr = (0.00075 * (1 - t) ** 0.9 + 0.00012)
+    rr = (0.00105 * (1 - t) ** 0.9 + 0.00012)
     scale = np.clip(R['length'] / 0.022, 0.7, 1.35) ** 0.5
     rad.data.foreach_set('value', (rr[None, :] * scale[:, None]).reshape(-1).astype(np.float32))
     col = cv.attributes.new('fur_color', 'FLOAT_COLOR', 'CURVE')

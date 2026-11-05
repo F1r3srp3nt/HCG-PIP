@@ -9,23 +9,27 @@ import numpy as np
 # The head was blocked out around HC0 and is re-scaled/re-seated with H() so
 # the chibi proportions (big head, short plump body) are one knob to turn.
 HC0 = np.array([0.0, -0.045, 0.400])
-HC1 = np.array([0.0, -0.040, 0.368])
-HS = 1.14
+HC1 = np.array([0.0, -0.040, 0.352])
+HS = 1.22
 
 
 def H(p):
     return HC1 + (np.asarray(p, float) - HC0) * HS
 
 
-EYE_R = 0.0385 * HS
-EYE_C = {s: H([s * 0.054, -0.110, 0.398]) for s in (1, -1)}
+EYE_R = 0.0455 * HS
+EYE_C = {s: H([s * 0.058, -0.097, 0.397]) for s in (1, -1)}
 EYE_GAZE = {s: (lambda v: v / np.linalg.norm(v))(np.array([s * 0.20, -1.0, 0.03])) for s in (1, -1)}
-NOSE_C = H([0.0, -0.186, 0.378])
-MOUTH_C = H([0.0, -0.176, 0.347])
-MOUTH_R = np.array([0.031, 0.022, 0.0175]) * HS
-MOUTH_TOP = H([0, 0, 0.356])[2]
-DIE_EDGE = 0.098
-DIE_C = np.array([0.0, -0.172, 0.168])
+NOSE_C = H([0.0, -0.180, 0.385])
+# v2 mouth: a relaxed, closed slit (a thin gap so the jaw and lip corners can
+# open it into a grin). MOUTH_C sits on the front of the muzzle.
+MOUTH_C = H([0.0, -0.170, 0.354])
+MOUTH_HALF_W = 0.033 * HS          # half width of the mouth line
+MOUTH_GAP = 0.0030                 # half thickness of the slit
+MOUTH_DEPTH = 0.024                # how far the slit cuts back into the muzzle
+MOUTH_SMILE = 6.5                  # corners curve up: z += MOUTH_SMILE * x^2
+DIE_EDGE = 0.160
+DIE_C = np.array([0.0, -0.240, 0.165])
 
 # tail spine (Pip's right side, curling up behind him)
 TAIL_PTS = np.array([
@@ -33,11 +37,11 @@ TAIL_PTS = np.array([
     [-0.080, 0.150, 0.072],
     [-0.158, 0.160, 0.110],
     [-0.214, 0.138, 0.178],
-    [-0.236, 0.100, 0.250],
-    [-0.222, 0.058, 0.306],
-    [-0.192, 0.030, 0.332],
+    [-0.238, 0.100, 0.246],
+    [-0.226, 0.064, 0.298],
+    [-0.200, 0.040, 0.326],
 ])
-TAIL_RAD = np.array([0.034, 0.056, 0.072, 0.074, 0.064, 0.046, 0.018])
+TAIL_RAD = np.array([0.036, 0.060, 0.076, 0.078, 0.066, 0.044, 0.012])
 
 
 def _unit(v):
@@ -47,9 +51,9 @@ def _unit(v):
 
 def ear_frame(side):
     """Ear base point, length axis A, across axis S, front normal N."""
-    base = H([side * 0.070, -0.014, 0.455])
-    A = _unit([side * 0.50, 0.16, 0.85])
-    N = _unit([side * 0.30, -1.0, 0.10])
+    base = H([side * 0.070, -0.020, 0.446])
+    A = _unit([side * 0.52, 0.12, 0.85])
+    N = _unit([side * 0.10, -1.0, 0.04])
     N = _unit(N - A * (N @ A))
     S = np.cross(A, N) * side          # points away from the head centre-line
     if S[0] * side < 0:
@@ -57,15 +61,18 @@ def ear_frame(side):
     return base, A, S, N
 
 
-EAR_LEN = 0.255
-EAR_W = 0.086        # max half width
+EAR_LEN = 0.262
+EAR_W = 0.094        # max half width
 EAR_T = 0.016        # max thickness
-EAR_CUP = 0.022      # how deep the inner ear is cupped
+EAR_CUP = 0.017      # how deep the inner ear is cupped
 
 
 def ear_halfwidth(u):
-    w = (1 - u) ** 0.85 * (0.70 + 1.5 * u)
-    return EAR_W * w / 0.98
+    """v2: broad rounded leaf - stays wide to mid-length, then rounds to a soft point."""
+    u = np.asarray(u, float)
+    lo = 0.97 + 0.03 * np.clip(u / 0.36, 0, 1)
+    hi = np.sqrt(np.clip(1 - (np.clip(u - 0.36, 0, None) / 0.64) ** 1.8, 0, 1)) ** 0.9
+    return EAR_W * np.where(u < 0.36, lo, hi) + 0.004 * (1 - u)
 
 
 def ear_point(side, u, X, Y):
@@ -75,10 +82,10 @@ def ear_point(side, u, X, Y):
     X = np.asarray(X)[..., None]
     Y = np.asarray(Y)[..., None]
     hw = ear_halfwidth(u)
-    th = 0.0085 + EAR_T * (1 - X ** 2) * (1 - 0.7 * u)
+    th = 0.0095 + EAR_T * (1 - X ** 2) * (1 - 0.6 * u)
     cup = EAR_CUP * (1 - X ** 2) * np.sin(np.pi * np.clip(u * 1.08, 0, 1)) ** 0.8
-    bend = 0.035 * u ** 2            # tip leans slightly back
-    flare = 0.020 * u ** 2           # and slightly outward
+    bend = 0.022 * u ** 2            # tip leans slightly back
+    flare = 0.012 * u ** 2           # and slightly outward
     return (base + u * EAR_LEN * A + X * hw * S + (Y * th / 2 - cup - bend) * N
             + flare * S * side * 0 + flare * np.array([side, 0, 0]))
 
@@ -151,13 +158,13 @@ def smin(a, b, k):
 
 # limb joints (shared with the rig): shoulder, elbow, wrist, paw tip / hip, knee, ankle, toe
 def arm_joints(s):
-    return (np.array([s * 0.058, -0.055, 0.232]), np.array([s * 0.080, -0.088, 0.152]),
-            np.array([s * 0.075, -0.150, 0.180]), np.array([s * 0.074, -0.194, 0.192]))
+    return (np.array([s * 0.068, -0.060, 0.222]), np.array([s * 0.114, -0.114, 0.150]),
+            np.array([s * 0.112, -0.206, 0.194]), np.array([s * 0.106, -0.252, 0.212]))
 
 
 def leg_joints(s):
     return (np.array([s * 0.074, 0.020, 0.088]), np.array([s * 0.076, -0.090, 0.084]),
-            np.array([s * 0.076, -0.076, 0.030]), np.array([s * 0.073, -0.176, 0.020]))
+            np.array([s * 0.076, -0.076, 0.030]), np.array([s * 0.073, -0.182, 0.020]))
 
 
 def primitives():
@@ -172,42 +179,66 @@ def primitives():
     def C(name, bone, label, k, a, b, ra, rb):
         P.append((name, bone, label, k, lambda p, a=a, b=b, ra=ra, rb=rb: sd_round_cone(p, a, b, ra, rb)))
 
-    E('pelvis', 'hips', 'body', 0.04, (0, 0.025, 0.088), (0.112, 0.102, 0.088))
-    E('belly', 'spine', 'body', 0.045, (0, -0.018, 0.150), (0.093, 0.083, 0.088))
-    E('chest', 'chest', 'chest', 0.035, (0, -0.045, 0.210), (0.077, 0.060, 0.058))
-    E('neck', 'neck', 'neck', 0.035, (0, -0.035, 0.256), (0.064, 0.058, 0.045))
-    E('head', 'head', 'head', 0.045, (0, -0.045, 0.400), (0.128, 0.112, 0.106), True)
-    E('crown', 'head', 'crown', 0.035, (0, -0.010, 0.448), (0.092, 0.082, 0.058), True)
-    E('muzzle', 'head', 'muzzle', 0.026, (0, -0.133, 0.366), (0.047, 0.050, 0.033), True)
-    E('bridge', 'head', 'muzzle', 0.022, (0, -0.122, 0.392), (0.032, 0.050, 0.026), True)
-    E('chin', 'jaw', 'chin', 0.020, (0, -0.126, 0.334), (0.042, 0.044, 0.022), True)
+    E('pelvis', 'hips', 'body', 0.04, (0, 0.025, 0.088), (0.118, 0.106, 0.090))
+    E('belly', 'spine', 'body', 0.045, (0, -0.016, 0.150), (0.098, 0.086, 0.090))
+    E('chest', 'chest', 'chest', 0.035, (0, -0.045, 0.200), (0.079, 0.062, 0.058))
+    E('neck', 'neck', 'neck', 0.035, (0, -0.035, 0.240), (0.066, 0.060, 0.045))
+    E('head', 'head', 'head', 0.045, (0, -0.045, 0.402), (0.122, 0.112, 0.114), True)
+    E('crown', 'head', 'crown', 0.035, (0, -0.020, 0.454), (0.086, 0.078, 0.066), True)
+    E('muzzle', 'head', 'muzzle', 0.026, (0, -0.132, 0.368), (0.046, 0.048, 0.032), True)
+    E('bridge', 'head', 'muzzle', 0.022, (0, -0.122, 0.394), (0.030, 0.050, 0.024), True)
+    E('chin', 'jaw', 'chin', 0.020, (0, -0.124, 0.340), (0.038, 0.040, 0.020), True)
     for s, sx in ((1, 'L'), (-1, 'R')):
-        E(f'cheek.{sx}', 'head', 'cheek', 0.030, (s * 0.094, -0.078, 0.358), (0.056, 0.050, 0.044), True)
+        E(f'cheek.{sx}', 'head', 'cheek', 0.030, (s * 0.096, -0.074, 0.356), (0.056, 0.050, 0.044), True)
         E(f'thigh.{sx}', f'thigh.{sx}', 'leg', 0.030, (s * 0.076, -0.035, 0.066), (0.057, 0.080, 0.062))
-        E(f'foot.{sx}', f'foot.{sx}', 'foot', 0.020, (s * 0.073, -0.128, 0.024), (0.039, 0.060, 0.024))
+        E(f'foot.{sx}', f'foot.{sx}', 'foot', 0.020, (s * 0.074, -0.130, 0.026), (0.044, 0.064, 0.026))
+        for k, dx in enumerate((-0.022, 0.0, 0.022)):      # three soft toes
+            E(f'toe{k}.{sx}', f'foot.{sx}', 'foot', 0.008, (s * 0.074 + dx, -0.182, 0.018),
+              (0.0135, 0.016, 0.0165))
         sh, el, wr, tip = arm_joints(s)
-        C(f'upper_arm.{sx}', f'upper_arm.{sx}', 'arm', 0.025, sh, el, 0.031, 0.027)
-        C(f'forearm.{sx}', f'forearm.{sx}', 'arm', 0.014, el, wr, 0.027, 0.025)
-        E(f'paw.{sx}', f'paw.{sx}', 'paw', 0.012, wr + (tip - wr) * 0.45, (0.026, 0.031, 0.028))
+        C(f'upper_arm.{sx}', f'upper_arm.{sx}', 'arm', 0.025, sh, el, 0.036, 0.031)
+        C(f'forearm.{sx}', f'forearm.{sx}', 'arm', 0.014, el, wr, 0.031, 0.028)
+        E(f'paw.{sx}', f'paw.{sx}', 'paw', 0.012, wr + (tip - wr) * 0.45, (0.028, 0.036, 0.033))
+    # sculpted hair locks: the swept crest between the ears and spiky cheek tufts
+    for k, (b, t, rb) in enumerate((((0.000, -0.060, 0.505), (-0.050, -0.098, 0.548), 0.022),
+                                    ((0.030, -0.030, 0.512), (-0.006, -0.070, 0.566), 0.020),
+                                    ((-0.030, -0.040, 0.508), (-0.080, -0.072, 0.530), 0.018),
+                                    ((0.045, -0.075, 0.490), (0.030, -0.120, 0.512), 0.015))):
+        C(f'lock{k}', 'head', 'crown', 0.018, H(b), H(t), rb * HS, 0.004)
+    for s, sx in ((1, 'L'), (-1, 'R')):
+        for k, (b, t, rb) in enumerate((((0.120, -0.075, 0.372), (0.172, -0.070, 0.352), 0.020),
+                                        ((0.118, -0.065, 0.340), (0.160, -0.055, 0.306), 0.018))):
+            C(f'ctuft{k}.{sx}', 'head', 'cheek', 0.016, H((s * b[0], b[1], b[2])), H((s * t[0], t[1], t[2])),
+              rb * HS, 0.004)
     for i in range(len(TAIL_PTS) - 1):
         C(f'tail.{i + 1:02d}', f'tail.{i + 1:02d}', 'tail', 0.03 if i == 0 else 0.02,
           TAIL_PTS[i], TAIL_PTS[i + 1], TAIL_RAD[i], TAIL_RAD[i + 1])
     return P
 
 
-def sd_mouth(p):
-    """Open 'D' smile: rounded bottom, flat upper lip line."""
-    x2 = (p[..., 0] - MOUTH_C[0]) ** 2
-    q = p.copy()
-    q[..., 2] = q[..., 2] - 7.0 * x2          # corners curl up into a smile
-    return np.maximum(sd_ellipsoid(q, MOUTH_C, MOUTH_R), q[..., 2] - MOUTH_TOP)
+def mouth_z(x):
+    return MOUTH_C[2] + MOUTH_SMILE * (x - MOUTH_C[0]) ** 2
+
+
+MOUTH_OPEN_H = 0.021              # how far the grin opens below the smile line
+
+
+def mouth_open_bottom(x):
+    k = np.clip(1 - (np.asarray(x) / MOUTH_HALF_W) ** 2, 0, 1)
+    return mouth_z(x) - MOUTH_OPEN_H * k ** 0.6
+
+
+def mouth_region(p, pad=0.0):
+    """Area of the muzzle the open grin can cover (no fur grows here)."""
+    x, z = p[..., 0], p[..., 2]
+    return ((np.abs(x) < MOUTH_HALF_W + pad) & (z < mouth_z(x) + pad)
+            & (z > mouth_open_bottom(x) - pad) & (p[..., 1] < MOUTH_C[1] + 0.022))
 
 
 def carves():
     out = []
     for s in (1, -1):
-        out.append(('eye_socket', 0.010, lambda p, c=EYE_C[s]: np.linalg.norm(p - c, axis=-1) - EYE_R * 1.02))
-    out.append(('mouth', 0.005, sd_mouth))
+        out.append(('eye_socket', 0.008, lambda p, c=EYE_C[s]: np.linalg.norm(p - c, axis=-1) - EYE_R * 1.10))
     return out
 
 

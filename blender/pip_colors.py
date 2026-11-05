@@ -9,14 +9,15 @@ def hexlin(h):
     return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 
 
-WHITE = hexlin('#F4F2EF')
-BLUE_TINT = hexlin('#BCCBEF')
-BLUE_MARK = hexlin('#8DA5E2')
-EAR_INNER = hexlin('#6884CF')
-EAR_INNER_LIGHT = hexlin('#8EA5E2')
-CYAN = hexlin('#5AD8EA')
-CYAN_DEEP = hexlin('#2BB3D8')
-MOUTH = hexlin('#5B1822')
+WHITE = hexlin('#F1F1F4')
+BLUE_TINT = hexlin('#B2C0E0')
+BLUE_MARK = hexlin('#7890CF')
+EAR_INNER = hexlin('#2F4696')
+EAR_INNER_LIGHT = hexlin('#87A0DE')
+CYAN = hexlin('#52C8DA')
+CYAN_DEEP = hexlin('#1E8FB2')
+MOUTH = hexlin('#4A121C')
+LIP = hexlin('#3A2A3A')
 PAD = hexlin('#B6AFC9')
 
 
@@ -52,6 +53,7 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
     length = np.full(N, 0.022)
     lift = np.full(N, 0.45)
     clump = np.full(N, 0.6)
+    reach = np.ones(N)          # clump size multiplier (bigger = chunkier tufts)
     dens = np.ones(N)
     up = np.array([0, 0, 1.0])
     back = np.array([0, 1.0, 0])
@@ -66,44 +68,59 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
     # ---- body blue wash on the back / outsides
     back_f = sstep(0.0, 0.9, nrm @ unit(np.array([0, 1.0, 0.35])))
     m = L('body', 'leg', 'foot', 'arm', 'neck')
-    col[m] = col[m] + (BLUE_TINT - WHITE) * (0.55 * back_f[m])[:, None]
-    side_f = sstep(0.3, 0.95, np.abs(nrm[:, 0])) * (lab == 'leg')
-    col = col + (BLUE_TINT - WHITE) * (0.35 * side_f)[:, None]
+    col[m] = col[m] + (BLUE_TINT - WHITE) * (0.80 * back_f[m])[:, None]
+    side_f = sstep(0.3, 0.95, np.abs(nrm[:, 0])) * np.isin(lab, ['leg', 'arm', 'body'])
+    col = col + (BLUE_TINT - WHITE) * (0.50 * side_f)[:, None]
+    low_f = (1 - sstep(0.02, 0.10, co[:, 2])) * np.isin(lab, ['leg', 'body'])
+    col = col + (BLUE_TINT - WHITE) * (0.35 * low_f)[:, None]
 
     # ---- head
     hm = L('head', 'crown')
     comb[hm] = tangent(np.tile(back + 0.25 * up, (hm.sum(), 1)), nrm[hm])
-    length[hm] = 0.019
+    length[hm] = 0.016
+    lift[hm] = 0.22
     head_back = sstep(-0.2, 0.8, nrm @ unit(np.array([0, 1.0, 0.25])))
-    col[hm] = col[hm] + (BLUE_TINT - WHITE) * (0.45 * head_back[hm])[:, None]
+    col[hm] = col[hm] + (BLUE_TINT - WHITE) * (0.65 * head_back[hm])[:, None]
+    top_f = sstep(0.2, 0.8, nrm[:, 2]) * hm
+    col = col + (BLUE_TINT - col) * (0.45 * top_f)[:, None]
     # crown crest: long, tufty, swept up and back
-    zc = D.H([0, 0, 0.455])[2]
+    zc = D.H([0, 0, 0.445])[2]
     crest = hm & (co[:, 2] > zc)
     w = sstep(zc, zc + 0.04, co[:, 2])
-    length[crest] = 0.019 + 0.024 * w[crest]
-    lift[crest] = 0.55
-    clump[crest] = 0.8
-    comb[crest] = tangent(up + 0.7 * back + 0.5 * np.c_[np.sign(co[crest, 0]), np.zeros((crest.sum(), 2))]
-                          + rng.normal(0, 0.35, (crest.sum(), 3)), nrm[crest])
+    length[crest] = 0.030 + 0.050 * w[crest]
+    lift[crest] = 0.75
+    clump[crest] = 0.92
+    reach[crest] = 2.2
+    swept = np.array([-0.75, -0.25, 0.0])        # bangs sweep toward his right
+    comb[crest] = tangent(up * 1.2 + 0.25 * back + swept + rng.normal(0, 0.3, (crest.sum(), 3)), nrm[crest])
     # forehead fur sweeps up into the crest
     fh = hm & (nrm[:, 1] < -0.35) & (co[:, 2] > D.H([0, 0, 0.425])[2])
-    comb[fh] = tangent(np.tile(up + 0.2 * back, (fh.sum(), 1)), nrm[fh])
-    length[fh] = 0.016
+    comb[fh] = tangent(np.tile(up * 0.6 - back * 0.2 + np.array([-0.6, 0, 0]), (fh.sum(), 1)), nrm[fh])
+    length[fh] = 0.022
+    clump[fh] = 0.85
+    reach[fh] = 1.8
     # blue brow arcs + feathered streaks above each eye
     for s in (1, -1):
         q = co - D.EYE_C[s]
         qx = s * q[:, 0]
         rho = np.hypot(qx, q[:, 2])
         phi = np.degrees(np.arctan2(q[:, 2], qx))
-        arc = (sstep(D.EYE_R + 0.006, D.EYE_R + 0.012, rho) * (1 - sstep(D.EYE_R + 0.018, D.EYE_R + 0.026, rho))
-               * sstep(35, 55, phi) * (1 - sstep(125, 150, phi)))
+        arc = (sstep(D.EYE_R + 0.007, D.EYE_R + 0.011, rho) * (1 - sstep(D.EYE_R + 0.020, D.EYE_R + 0.026, rho))
+               * sstep(30, 50, phi) * (1 - sstep(120, 145, phi)))
+        ring = (1 - sstep(D.EYE_R + 0.004, D.EYE_R + 0.016, rho)) * 0.55
         th = np.degrees(np.arctan2(q[:, 2] + 0.035, qx + 0.004))
         streak = np.zeros(len(co))
         for a0, w0 in ((62, 3.5), (80, 4.5), (98, 3.5)):
             streak = np.maximum(streak, 1 - sstep(w0 * 0.5, w0, np.abs(th - a0)))
         streak *= sstep(D.EYE_R + 0.012, D.EYE_R + 0.02, rho) * (1 - sstep(D.EYE_R + 0.04, D.EYE_R + 0.055, rho))
-        mark = np.maximum(arc, 0.9 * streak) * (nrm[:, 1] < 0.15) * hm
-        col = col + (BLUE_MARK - col) * (0.9 * mark)[:, None]
+        a = D.EYE_C[s] + np.array([s * (D.EYE_R + 0.004), 0.02, 0.006])
+        b = a + np.array([s * 0.040, 0.050, 0.014])
+        ab = b - a
+        tt_ = np.clip(((co - a) @ ab) / (ab @ ab), 0, 1)
+        dl = np.linalg.norm(co - (a + tt_[:, None] * ab), axis=1)
+        stroke = (1 - sstep(0.003 + 0.004 * (1 - tt_), 0.007 + 0.006 * (1 - tt_), dl)) * (1 - sstep(0.7, 1.0, tt_))
+        mark = np.maximum(np.maximum(np.maximum(arc, 0.9 * streak), 0.8 * stroke), ring) * (nrm[:, 1] < 0.35) * hm
+        col = col + (BLUE_MARK - col) * (0.95 * mark)[:, None]
     # small blue flame in the middle of the forehead
     q = co - D.H([0, -0.115, 0.455])
     fl = (1 - sstep(0.008, 0.016, np.abs(q[:, 0]) + 0.25 * np.abs(q[:, 2]))) * hm * (nrm[:, 1] < 0)
@@ -111,8 +128,8 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
 
     # ---- face: short fur, cleared around eyes / nose / mouth
     face = hm & (nrm[:, 1] < -0.55) & (co[:, 2] < D.H([0, 0, 0.44])[2])
-    length[face] = 0.011
-    lift[face] = 0.25
+    length[face] = 0.009
+    lift[face] = 0.15
     m = L('muzzle')
     length[m] = 0.006
     lift[m] = 0.2
@@ -123,7 +140,7 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
     comb[m] = tangent(np.tile(-up + 0.5 * back, (m.sum(), 1)), nrm[m])
     for s in (1, -1):
         de = np.linalg.norm(co - D.EYE_C[s], axis=1) - D.EYE_R
-        dens[de < 0.006] = 0
+        dens[de < 0.012] = 0
         near = de < 0.022
         length[near] = np.minimum(length[near], 0.004 + 0.5 * np.maximum(de[near], 0))
         lift[near] = 0.15
@@ -132,21 +149,29 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
         comb[near] = unit(comb[near] * 0.3 + away)
     dn = np.linalg.norm(co - D.NOSE_C, axis=1)
     dens[dn < 0.024] = 0
-    dm = D.sd_mouth(co)
-    mouth = dm < 0.0035
-    dens[dm < 0.008] = 0
-    col[mouth & ~is_ear] = MOUTH
+    # relaxed mouth: a painted lip line on the smile curve (the grin itself is
+    # the Pip_Mouth mesh, opened by the rig's "grin" control)
+    dens[D.mouth_region(co, 0.003) & ~is_ear] = 0
+    near_m = D.mouth_region(co, 0.012) & ~is_ear
+    length[near_m] = np.minimum(length[near_m], 0.004)
+    # philtrum: a fine dark line from the nose down to the mouth
+    ztop, zbot = D.NOSE_C[2] - 0.010, D.mouth_z(0.0)
+    ph = ((np.abs(co[:, 0]) < 0.0016 + 0.0006 * (ztop - co[:, 2]) / max(ztop - zbot, 1e-6))
+          & (co[:, 2] < ztop) & (co[:, 2] > zbot) & (nrm[:, 1] < -0.4) & ~is_ear)
+    col[ph] = col[ph] + (LIP - col[ph]) * 0.75
+    dens[ph] = 0
 
     # ---- cheeks: big outward tufts
     m = L('cheek')
     cheek_out = np.c_[np.sign(co[m, 0]), np.zeros(m.sum()), np.zeros(m.sum())]
     comb[m] = tangent(cheek_out * 1.0 - up * 0.55 + back * 0.35, nrm[m])
-    length[m] = 0.048
-    lift[m] = 0.35
-    clump[m] = 0.85
+    length[m] = 0.060
+    lift[m] = 0.30
+    clump[m] = 0.95
+    reach[m] = 2.4
     # cheek fur that faces forward stays shorter so the face reads
     fwd = m & (nrm[:, 1] < -0.6)
-    length[fwd] = 0.02
+    length[fwd] = 0.024
 
     # ---- chest bib & neck
     m = L('chest', 'neck')
@@ -155,6 +180,7 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
     clump[m] = 0.6
     m = L('body')
     length[m] = 0.029
+    reach[~is_ear] = np.maximum(reach[~is_ear], 1.4)
     # ---- legs / feet / arms / paws
     m = L('leg')
     comb[m] = tangent(np.tile(back * 0.8 - up, (m.sum(), 1)), nrm[m])
@@ -177,17 +203,22 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
     t = an['tail_t']
     tt = an['tail_tan']
     comb[m] = tangent(tt[m] * 1.0 + nrm[m] * 0.15, nrm[m])
-    length[m] = 0.036 + 0.036 * np.sin(np.pi * np.clip(t[m] * 1.1, 0, 1)) ** 0.7
-    lift[m] = 0.45
-    clump[m] = 0.65
+    length[m] = 0.042 + 0.040 * np.sin(np.pi * np.clip(t[m] * 1.05, 0, 1)) ** 0.6
+    lift[m] = 0.40
+    clump[m] = 0.80
+    reach[m] = 1.6
+    tipm = m & (t > 0.8)          # the tip gathers into one soft point
+    comb[tipm] = tangent(tt[tipm] * 1.0, nrm[tipm])
+    lift[tipm] = 0.2
     # angle around the tail axis for the zig-zag
     seg_c = co - D.TAIL_PTS[3]
     ang = np.arctan2(seg_c[:, 2], seg_c[:, 0] + seg_c[:, 1] * 0.5)
-    edge = 0.60 + 0.045 * np.sign(np.sin(ang * 4.0)) * np.abs(np.sin(ang * 4.0)) ** 0.5
-    tip = sstep(edge - 0.015, edge + 0.015, t) * m
-    tipcol = CYAN_DEEP + (CYAN - CYAN_DEEP) * sstep(0.62, 0.95, t)[:, None]
+    saw = 2 * np.abs((ang * 5.0 / (2 * np.pi)) % 1.0 - 0.5)          # zig-zag 0..1
+    edge = 0.58 + 0.07 * (saw - 0.5)
+    tip = sstep(edge - 0.01, edge + 0.01, t) * m
+    tipcol = CYAN_DEEP + (CYAN - CYAN_DEEP) * sstep(0.55, 0.9, t)[:, None]
     col = col + (tipcol - col) * tip[:, None]
-    base_blue = (1 - tip) * m * 0.25 * sstep(0.2, 0.55, t)
+    base_blue = (1 - tip) * m * (0.25 + 0.3 * back_f)
     col = col + (BLUE_TINT - col) * base_blue[:, None]
 
     # ---- ears
@@ -213,17 +244,26 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
         lft = np.full(em.sum(), 0.15)
         cmb = tangent(np.tile(A, (em.sum(), 1)), nrm[em])
         dn_ = np.full(em.sum(), 0.9)
-        lng[rim] = 0.013
-        lft[rim] = 0.35
-        cmb[rim] = tangent(A * 0.6 + S * np.sign(X[rim])[:, None] * 0.6, nrm[em][rim])
-        # inner ear: soft light tufts near the base, fine fuzz elsewhere
-        tuft = inner & (u < 0.42)
-        lng[inner] = 0.004
-        dn_[inner] = 0.35
-        lng[tuft] = 0.018 * (1 - u[tuft] / 0.42) + 0.005
-        dn_[tuft] = 0.45
-        lft[tuft] = 0.5
+        lng[outer] = 0.010
+        lng[rim] = 0.017
+        lft[rim] = 0.45
+        dn_[rim] = 1.0
+        cmb[rim] = tangent(A * 0.5 + S * np.sign(X[rim])[:, None] * 0.8, nrm[em][rim])
+        # inner ear: blue skin, a white fringe growing in from the rim, a cyan tuft low down
+        lng[inner] = 0.003
+        dn_[inner] = 0.15
+        fringe = inner & (np.abs(X) > 0.55)
+        lng[fringe] = 0.016
+        dn_[fringe] = 0.9
+        lft[fringe] = 0.35
+        cmb[fringe] = tangent(A * 0.6 - S * np.sign(X[fringe])[:, None] * 0.5 + Nf * 0.3, nrm[em][fringe])
+        c[fringe] = c[fringe] + (WHITE - c[fringe]) * sstep(0.55, 0.85, np.abs(X[fringe]))[:, None]
+        tuft = inner & (u < 0.4) & (np.abs(X) <= 0.55)
+        lng[tuft] = 0.020 * (1 - u[tuft] / 0.4) + 0.006
+        dn_[tuft] = 0.6
+        lft[tuft] = 0.55
         cmb[tuft] = tangent(np.tile(A + Nf * 0.6, (tuft.sum(), 1)), nrm[em][tuft])
+        col[em] = c
         # roots buried inside the head are dropped
         buried = D.body_sdf(co[em]) < -0.0015
         dn_[buried] = 0
@@ -231,7 +271,8 @@ def fields(co, nrm, an, lab, is_ear, ear_side, ear_par, rng):
         lift[em] = lft
         comb[em] = cmb
         dens[em] = dn_
-        clump[em] = 0.35
+        clump[em] = 0.55
+        reach[em] = 1.3
     # body roots that sit inside an ear shell
     dens[(an['ear_d'].min(1) < 0.0) & ~is_ear] = 0
-    return dict(color=col, length=length, lift=lift, comb=comb, clump=clump, density=dens)
+    return dict(color=col, length=length, lift=lift, comb=comb, clump=clump, density=dens, reach=reach)

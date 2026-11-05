@@ -75,14 +75,14 @@ def make_materials():
     nt.links.new(ramp.outputs['Color'], mul.inputs[7])
     # hair colour parametrisation darkens; lift it back towards the map
     gam = nt.nodes.new('ShaderNodeGamma')
-    gam.inputs['Gamma'].default_value = 0.85
+    gam.inputs['Gamma'].default_value = 0.75
     nt.links.new(mul.outputs[2], gam.inputs['Color'])
     nt.links.new(gam.outputs['Color'], h.inputs['Color'])
     # mix in a little diffuse for a softer, plush read
     dif = nt.nodes.new('ShaderNodeBsdfDiffuse')
     nt.links.new(gam.outputs['Color'], dif.inputs['Color'])
     mix = nt.nodes.new('ShaderNodeMixShader')
-    mix.inputs['Fac'].default_value = 0.35
+    mix.inputs['Fac'].default_value = 0.5
     nt.links.new(h.outputs[0], mix.inputs[1])
     nt.links.new(dif.outputs[0], mix.inputs[2])
     nt.links.new(mix.outputs[0], out.inputs['Surface'])
@@ -90,7 +90,7 @@ def make_materials():
 
     # --- eyes: iris painted from the eye's local +Z (gaze) axis
     m, nt, out = _new('Pip_Eye')
-    b = principled(nt, out, rough=0.3, **{'Coat Weight': 1.0, 'Coat Roughness': 0.03,
+    b = principled(nt, out, rough=0.45, **{'Coat Weight': 0.85, 'Coat Roughness': 0.02,
                                          'Coat IOR': 1.45, 'Specular IOR Level': 0.6})
     tc = nt.nodes.new('ShaderNodeTexCoord')
     sep = nt.nodes.new('ShaderNodeSeparateXYZ')
@@ -101,9 +101,9 @@ def make_materials():
     ramp = nt.nodes.new('ShaderNodeValToRGB')
     cr = ramp.color_ramp
     cr.interpolation = 'EASE'
-    stops = [(0.0, '#EEF0F5'), (0.42, '#EEF0F5'), (0.45, '#1E0D04'), (0.53, '#6A2C08'),
-             (0.64, '#C0600E'), (0.74, '#E8921F'), (0.82, '#F6B843'), (0.84, '#3B1A06'),
-             (0.855, '#050304'), (1.0, '#050304')]
+    stops = [(0.0, '#EEF0F5'), (0.22, '#EEF0F5'), (0.26, '#160A04'), (0.40, '#4A1E08'),
+             (0.54, '#8E4410'), (0.68, '#C47418'), (0.80, '#E3A040'), (0.865, '#4A2208'),
+             (0.88, '#060304'), (1.0, '#060304')]
     cr.elements[0].position, cr.elements[0].color = stops[0][0], rgba(stops[0][1])
     cr.elements[1].position, cr.elements[1].color = stops[-1][0], rgba(stops[-1][1])
     for pos, col in stops[1:-1]:
@@ -136,8 +136,8 @@ def make_materials():
     a = nt.nodes.new('ShaderNodeAttribute')
     a.attribute_name = 'lash'
     ramp = nt.nodes.new('ShaderNodeValToRGB')
-    ramp.color_ramp.elements[0].position = 0.45
-    ramp.color_ramp.elements[0].color = rgba('#E9ECF6')
+    ramp.color_ramp.elements[0].position = 0.35
+    ramp.color_ramp.elements[0].color = rgba('#C7D1EE')
     ramp.color_ramp.elements[1].position = 0.75
     ramp.color_ramp.elements[1].color = rgba('#140F1C')
     nt.links.new(a.outputs['Fac'], ramp.inputs['Fac'])
@@ -153,17 +153,23 @@ def make_materials():
     m, nt, out = _new('Pip_Tongue')
     principled(nt, out, '#E27587', 0.32, **{'Subsurface Weight': 0.2, 'Coat Weight': 0.3})
     M['tongue'] = m
+    m, nt, out = _new('Pip_MouthInner')
+    b = principled(nt, out, rough=0.4, **{'Coat Weight': 0.3, 'Coat Roughness': 0.15})
+    a = nt.nodes.new('ShaderNodeAttribute')
+    a.attribute_name = 'mcol'
+    nt.links.new(a.outputs['Color'], b.inputs['Base Color'])
+    M['mouth'] = m
 
     # --- scarf: soft navy fleece with gentle colour variation
     m, nt, out = _new('Pip_Scarf')
-    b = principled(nt, out, rough=0.85, **{'Sheen Weight': 0.5, 'Sheen Roughness': 0.35,
-                                          'Sheen Tint': (0.35, 0.42, 0.9, 1)})
+    b = principled(nt, out, rough=0.62, **{'Sheen Weight': 0.7, 'Sheen Roughness': 0.3,
+                                          'Sheen Tint': (0.45, 0.55, 1.0, 1)})
     noise = nt.nodes.new('ShaderNodeTexNoise')
     noise.inputs['Scale'].default_value = 60
     noise.inputs['Detail'].default_value = 6
     ramp = nt.nodes.new('ShaderNodeValToRGB')
-    ramp.color_ramp.elements[0].color = rgba('#131B58')
-    ramp.color_ramp.elements[1].color = rgba('#26389A')
+    ramp.color_ramp.elements[0].color = rgba('#121A4E')
+    ramp.color_ramp.elements[1].color = rgba('#22307A')
     nt.links.new(noise.outputs['Fac'], ramp.inputs['Fac'])
     nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
     bump = nt.nodes.new('ShaderNodeBump')
@@ -174,13 +180,13 @@ def make_materials():
 
     # --- gold die
     m, nt, out = _new('Gold_Die')
-    b = principled(nt, out, '#F2B23A', 0.3, **{'Metallic': 0.55, 'Coat Weight': 0.45,
+    b = principled(nt, out, '#EE9E14', 0.22, **{'Metallic': 0.75, 'Coat Weight': 0.55,
                                               'Coat Roughness': 0.12})
     noise = nt.nodes.new('ShaderNodeTexNoise')
     noise.inputs['Scale'].default_value = 140
     mr = nt.nodes.new('ShaderNodeMapRange')
-    mr.inputs['To Min'].default_value = 0.24
-    mr.inputs['To Max'].default_value = 0.38
+    mr.inputs['To Min'].default_value = 0.16
+    mr.inputs['To Max'].default_value = 0.28
     nt.links.new(noise.outputs['Fac'], mr.inputs['Value'])
     nt.links.new(mr.outputs['Result'], b.inputs['Roughness'])
     M['gold'] = m
@@ -191,7 +197,7 @@ def make_materials():
     # --- eye catch-light card (only seen in reflections)
     m, nt, out = _new('Catchlight')
     e = nt.nodes.new('ShaderNodeEmission')
-    e.inputs['Strength'].default_value = 25.0
+    e.inputs['Strength'].default_value = 14.0
     nt.links.new(e.outputs[0], out.inputs['Surface'])
     M['catch'] = m
 
@@ -202,8 +208,8 @@ def make_materials():
     sep = nt.nodes.new('ShaderNodeSeparateXYZ')
     nt.links.new(tc.outputs['Generated'], sep.inputs[0])
     ramp = nt.nodes.new('ShaderNodeValToRGB')
-    ramp.color_ramp.elements[0].color = rgba('#213C55')
-    ramp.color_ramp.elements[1].color = rgba('#0E1A28')
+    ramp.color_ramp.elements[0].color = rgba('#2E4D6B')
+    ramp.color_ramp.elements[1].color = rgba('#132438')
     nt.links.new(sep.outputs['Y'], ramp.inputs['Fac'])
     nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
     M['backdrop'] = m

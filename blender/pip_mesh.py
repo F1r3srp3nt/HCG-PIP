@@ -23,9 +23,9 @@ def mesh_from_arrays(name, verts, faces):
     return me
 
 
-def sdf_body_mesh(res=0.004):
-    lo = np.array([-0.32, -0.26, -0.02])
-    hi = np.array([0.20, 0.30, 0.56])
+def sdf_body_mesh(res=0.003):
+    lo = np.array([-0.34, -0.32, -0.02])
+    hi = np.array([0.24, 0.30, 0.60])
     n = np.ceil((hi - lo) / res).astype(int) + 1
     xs, ys, zs = (np.linspace(lo[i], lo[i] + (n[i] - 1) * res, n[i]) for i in range(3))
     G = np.stack(np.meshgrid(xs, ys, zs, indexing='ij'), -1).reshape(-1, 3)
